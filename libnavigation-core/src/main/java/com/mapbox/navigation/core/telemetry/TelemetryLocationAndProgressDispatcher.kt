@@ -4,6 +4,7 @@ import android.location.Location
 import android.util.Log
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.navigation.base.trip.model.RouteProgress
+import com.mapbox.navigation.base.trip.model.RouteProgressState
 import com.mapbox.navigation.core.directions.session.RoutesObserver
 import com.mapbox.navigation.core.telemetry.MapboxNavigationTelemetry.LOCATION_BUFFER_MAX_SIZE
 import com.mapbox.navigation.core.telemetry.MapboxNavigationTelemetry.TAG
@@ -22,6 +23,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
 
+typealias RouteProgressReference = (RouteProgress) -> Unit
 internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
     RouteProgressObserver, LocationObserver, RoutesObserver {
     private var lastLocation: AtomicReference<Location?> = AtomicReference(null)
@@ -42,14 +44,19 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
             originalRouteDelegate = originalRoutePostInit
         }
     }
-    private val originalRouteDeffered = CompletableDeferred<DirectionsRoute>()
-    private var originalRouteDefferedValue: DirectionsRoute? = null
+    private val originalRouteDiffered = CompletableDeferred<DirectionsRoute>()
+    private var originalRouteDifferedValue: DirectionsRoute? = null
 
-    private val originalRoutePostInit = { routes: List<DirectionsRoute> -> Unit }
+    private val originalRoutePostInit = { _: List<DirectionsRoute> -> Unit }
     private var originalRouteDelegate: (List<DirectionsRoute>) -> Unit = originalRoutePreInit
     private val firstLocation = CompletableDeferred<Location>()
     private var firstLocationValue: Location? = null
+    private var priorState = RouteProgressState.ROUTE_INVALID
+    private var routeProgressPredicate = AtomicReference<RouteProgressReference>()
 
+    init {
+        routeProgressPredicate.set { routeProgress -> beforeArrival(routeProgress) }
+    }
     /**
      * This class provides thread-safe access to a mutable list of locations
      */
@@ -172,10 +179,12 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
      * This method cancels all jobs that accumulate telemetry data. The side effect of this call is to call Telemetry.addEvent(), which may cause events to be sent
      * to the back-end server
      */
-    fun cancelCollectionAndPostFinalEvents() =
-        ThreadController.getIOScopeAndRootJob().scope.launch {
+    fun cancelCollectionAndPostFinalEvents(): Job {
+        return ThreadController.getIOScopeAndRootJob().scope.launch {
             flushBuffers()
+            locationEventBuffer.clear()
         }
+    }
 
     /**
      * This channel becomes signaled if a navigation route is selected
@@ -184,12 +193,47 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
 
     fun getCopyOfCurrentLocationBuffer() = currentLocationBuffer.getCopy()
 
-    fun getOriginalRoute() = originalRoute.get()
+    fun getOriginalRouteReadOnly() = originalRoute.get()
 
-    override fun onRouteProgressChanged(routeProgress: RouteProgress) {
+    fun getOriginalRouteReadWrite() = originalRoute
+
+    fun resetRouteProgressProcessor() {
+        routeProgressPredicate.set { routeProgress -> beforeArrival(routeProgress) }
+    }
+
+    /**
+     * This method is called for any state change, excluding RouteProgressState.ROUTE_ARRIVED.
+     * It forwards the route progress data to a listener and saves it to a local variable
+     */
+    private fun beforeArrival(routeProgress: RouteProgress) {
+        Log.d(TAG, "beforeArrival()")
         val data = RouteProgressWithTimestamp(Time.SystemImpl.millis(), routeProgress)
         this.routeProgress.set(data)
         channelOnRouteProgress.offer(data)
+        if (routeProgress.currentState() == RouteProgressState.ROUTE_ARRIVED) {
+            routeProgressPredicate.set { progress -> afterArrival(progress) }
+        }
+    }
+
+    /**
+     * This method is called in response to receiving a RouteProgressState.ROUTE_ARRIVED event.
+     * It stores the route progress data without notifying listeners.
+     */
+    private fun afterArrival(routeProgress: RouteProgress) {
+        Log.d(TAG, "afterArrival()")
+        when (routeProgress.currentState()) {
+            priorState -> { }
+            else -> {
+                priorState = routeProgress.currentState() ?: priorState
+                Log.d(TAG, "route progress state = ${routeProgress.currentState()}")
+            }
+        }
+        val data = RouteProgressWithTimestamp(Time.SystemImpl.millis(), routeProgress)
+        this.routeProgress.set(data)
+    }
+
+    override fun onRouteProgressChanged(routeProgress: RouteProgress) {
+        routeProgressPredicate.get()(routeProgress)
     }
 
     fun getRouteProgressChannel(): ReceiveChannel<RouteProgressWithTimestamp> =
@@ -203,7 +247,7 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
 
     fun clearOriginalRoute() {
         originalRoute.set(null)
-        originalRouteDefferedValue = null
+        originalRouteDifferedValue = null
         originalRouteDelegate = originalRoutePreInit
     }
 
@@ -231,16 +275,16 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
 
     fun getFirstLocationAsync() = firstLocation
 
-    fun getOriginalRouteAsync() = originalRouteDeffered
+    fun getOriginalRouteAsync() = originalRouteDiffered
 
     private fun notifyOfNewRoute(routes: List<DirectionsRoute>) {
-        when (originalRouteDefferedValue) {
+        when (originalRouteDifferedValue) {
             null -> {
                 Log.d(TAG, "First time route set")
                 if (routes.isNotEmpty()) {
-                    originalRouteDefferedValue = routes[0]
-                    originalRouteDefferedValue?.let { route ->
-                        originalRouteDeffered.complete(route)
+                    originalRouteDifferedValue = routes[0]
+                    originalRouteDifferedValue?.let { route ->
+                        originalRouteDiffered.complete(route)
                     }
                 } else {
                     Log.d(TAG, "Empty route list received. Not setting route 2")
@@ -249,8 +293,8 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
             else -> {
                 if (routes.isNotEmpty()) {
                     Log.d(TAG, "Subsequent route set")
-                    originalRouteDefferedValue?.let { route ->
-                        originalRouteDeffered.complete(route)
+                    originalRouteDifferedValue?.let { route ->
+                        originalRouteDiffered.complete(route)
                     }
                 } else {
                     Log.d(TAG, "Empty route list received. Not setting route 2")

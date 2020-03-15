@@ -311,7 +311,7 @@ class SimpleMapboxNavigationKt : AppCompatActivity(), OnMapReadyCallback,
                     initDynamicCamera(routes[0])
                 }
             }
-            Timber.d("route changed %s", routes.toString())
+//            Timber.d("route changed %s", routes.toString())
         }
     }
 
