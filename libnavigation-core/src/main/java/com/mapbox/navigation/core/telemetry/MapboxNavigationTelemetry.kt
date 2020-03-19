@@ -72,7 +72,8 @@ private data class DynamicallyUpdatedRouteValues(
     val tripIdentifier: AtomicReference<String> = AtomicReference(TelemetryUtils.obtainUniversalUniqueIdentifier()),
     var sessionStartTime: Date = Date(),
     var sessionArrivalTime: AtomicReference<Date?> = AtomicReference(null),
-    var sdkId: String = "none"
+    var sdkId: String = "none",
+    val sessionStarted: AtomicBoolean = AtomicBoolean(false)
 ) {
     fun reset() {
         distanceRemaining.set(0)
@@ -86,6 +87,7 @@ private data class DynamicallyUpdatedRouteValues(
         timeSinceLastReroute.set(0)
         tripIdentifier.set(TelemetryUtils.obtainUniversalUniqueIdentifier())
         sessionArrivalTime.set(null)
+        sessionStarted.set(false)
     }
 }
 
@@ -114,7 +116,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private lateinit var metricsReporter: MetricsReporter
     private lateinit var navigationOptions: NavigationOptions
     private lateinit var localUserAgent: String
-    private var weakMapboxTelemetry = WeakReference<MapboxNavigation>(null)
+    private var weakMapboxNavigation = WeakReference<MapboxNavigation>(null)
 
     /**
      * This class holds all mutable state of the Telemetry object
@@ -133,13 +135,12 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private lateinit var callbackDispatcher: TelemetryLocationAndProgressDispatcher
 
     private fun telemetryEventGate(event: MetricEvent) =
-
-            when (callbackDispatcher.isRouteAvailable()) {
-                null -> {
+            when (isNavigationGuided()) {
+                false -> {
                     Log.i(TAG, "Route not selected. Telemetry event not sent")
                     false
                 }
-                else -> {
+                true -> {
                     metricsReporter.addEvent(event)
                     true
                 }
@@ -148,7 +149,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     // **********  EVENT OBSERVERS ***************
 
     private fun populateOriginalRouteConditionally() {
-        ifNonNull(weakMapboxTelemetry.get()) { mapboxNavigation ->
+        ifNonNull(weakMapboxNavigation.get()) { mapboxNavigation ->
             val routes = mapboxNavigation.getRoutes()
             if (routes.isNotEmpty()) {
                 Log.d(TAG, "Getting last route from MapboxNavigation")
@@ -158,6 +159,15 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         }
     }
 
+    /**
+     * The Navigation session is considered to be guided if it has been started and at least one route is active,
+     * it is a free guided session otherwise
+     */
+    private fun isNavigationGuided(): Boolean {
+        val routeAvailable = weakMapboxNavigation.get()?.getRoutes()?.isNotEmpty() ?: false
+        val sessionStarted = dynamicValues.sessionStarted.get()
+        return routeAvailable && sessionStarted
+    }
     /**
      * Callback that monitors session start/stop. Session stop is interpreted as both cancel and stop of the session
      */
@@ -315,7 +325,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
      */
     private val preInitializePredicate: (Context, String, MapboxNavigation, MetricsReporter, String, JobControl, NavigationOptions, String) -> Boolean =
             { context, token, mapboxNavigation, metricsReporter, name, jobControl, options, userAgent ->
-                weakMapboxTelemetry = WeakReference(mapboxNavigation)
+                weakMapboxNavigation = WeakReference(mapboxNavigation)
                 populateOriginalRouteConditionally()
                 this.context = context
                 localUserAgent = userAgent
@@ -417,8 +427,8 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
                 this.locationsAfter = postEventBuffer.toTypedArray()
             }
             populateNavigationEvent(feedbackEvent)
-            Log.i(TAG, "Posting a user feedback event")
-            metricsReporter.addEvent(feedbackEvent)
+            val eventPosted = telemetryEventGate(feedbackEvent)
+            Log.i(TAG, "Posting a user feedback event $eventPosted")
         })
     }
 
