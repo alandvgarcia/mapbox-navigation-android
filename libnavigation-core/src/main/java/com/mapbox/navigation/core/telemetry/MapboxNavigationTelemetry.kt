@@ -114,7 +114,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private lateinit var metricsReporter: MetricsReporter
     private lateinit var navigationOptions: NavigationOptions
     private lateinit var localUserAgent: String
-    private val remoteTelemetryToggle = AtomicBoolean(true)
     private var weakMapboxTelemetry = WeakReference<MapboxNavigation>(null)
 
     /**
@@ -159,18 +158,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         }
     }
 
-    private fun enableTelemetryReportingConditionally() {
-        when (remoteTelemetryToggle.compareAndSet(true, false)) {
-            true -> {
-                // Do nothing. Telemetry has been enabled
-            }
-            false -> {
-                MapboxMetricsReporter.init(context, mapboxToken, localUserAgent)
-                Log.d(TAG, "Enabling Telemetry reporting")
-            }
-        }
-    }
-
     /**
      * Callback that monitors session start/stop. Session stop is interpreted as both cancel and stop of the session
      */
@@ -181,7 +168,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
                 TripSessionState.STARTED -> {
                     telemetryThreadControl.scope.launch {
                         callbackDispatcher.resetRouteProgressProcessor()
-                        enableTelemetryReportingConditionally()
                         postUserEventDelegate =
                                 postUserFeedbackEventAfterInit // Telemetry is initialized and the user selected a route. Allow user feedback events to be posted
                         handleSessionStart(callbackDispatcher.getFirstLocationAsync().await())
@@ -331,7 +317,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
             { context, token, mapboxNavigation, metricsReporter, name, jobControl, options, userAgent ->
                 weakMapboxTelemetry = WeakReference(mapboxNavigation)
                 populateOriginalRouteConditionally()
-                remoteTelemetryToggle.set(true)
                 this.context = context
                 localUserAgent = userAgent
                 locationEngineNameExternal = name
@@ -437,19 +422,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         })
     }
 
-    private fun cancelCollectionAndDisable() = telemetryThreadControl.scope.launch {
-        callbackDispatcher.cancelCollectionAndPostFinalEvents().join() // Wait for this job to complete before disabling Telemetry
-        when (remoteTelemetryToggle.compareAndSet(true, false)) {
-            true -> {
-                Log.d(TAG, "Disabling telemetry from cancelCollectionAndDisable()")
-                MapboxMetricsReporter.disable()
-            }
-            false -> {
-                Log.d(TAG, "Telemetry already disabled. Value was ${remoteTelemetryToggle.get()}")
-            }
-        }
-    }
-
     /**
      * This method posts a cancel event in response to onSessionEnd
      */
@@ -459,7 +431,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         populateNavigationEvent(cancelEvent)
         val result = telemetryEventGate(cancelEvent)
         Log.d(TAG, "CANCEL event sent $result")
-        cancelCollectionAndDisable().join()
+        callbackDispatcher.cancelCollectionAndPostFinalEvents().join()
         retVal.complete(true)
         return retVal
     }
@@ -472,25 +444,12 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         callbackDispatcher.clearOriginalRoute()
     }
 
-    private fun enableRemoteTelemetry() {
-        when (remoteTelemetryToggle.compareAndSet(false, true)) {
-            true -> {
-                Log.d(TAG, "MapboxMetricsReporter.init from enableRemoteTelemetry()")
-                MapboxMetricsReporter.init(context, mapboxToken, localUserAgent)
-            }
-            false -> {
-                Log.d(TAG, "Telemetry already enabled")
-            }
-        }
-    }
-
     /**
      * This method starts a session. If a session is active it will terminate it, causing an stop/cancel event to be sent to the servers.
      * Every session start is guaranteed to have a session end.
      */
     private fun handleSessionStart(startingLocation: Location) {
         telemetryThreadControl.scope.launch {
-            enableRemoteTelemetry()
             Log.d(TAG, "Waiting in handleSessionStart")
             val directionsRoute = callbackDispatcher.getOriginalRouteAsync().await()
             Log.d(TAG, "The wait is over")
