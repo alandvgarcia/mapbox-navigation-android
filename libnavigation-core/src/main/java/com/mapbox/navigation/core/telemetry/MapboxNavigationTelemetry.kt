@@ -74,7 +74,8 @@ private data class DynamicallyUpdatedRouteValues(
     var sessionStartTime: Date = Date(),
     var sessionArrivalTime: AtomicReference<Date?> = AtomicReference(null),
     var sdkId: String = "none",
-    val sessionStarted: AtomicBoolean = AtomicBoolean(false)
+    val sessionStarted: AtomicBoolean = AtomicBoolean(false),
+    val originalRoute: AtomicReference<DirectionsRoute?> = AtomicReference(null)
 ) {
     fun reset() {
         distanceRemaining.set(0)
@@ -135,11 +136,8 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
 
     private lateinit var callbackDispatcher: TelemetryLocationAndProgressDispatcher
 
-    private fun telemetryCancelEventGate(event: MetricEvent) =
-        dynamicValues.sessionStarted.get() && callbackDispatcher.getOriginalRouteReadOnly() != null
-
     private fun telemetryEventGate(event: MetricEvent) =
-            when (isNavigationGuided()) {
+            when (isTelemetryAvailable()) {
                 false -> {
                     Log.i(TAG, "Route not selected. Telemetry event not sent")
                     false
@@ -162,15 +160,52 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
             }
         }
     }
-
+    private fun sessionStart() {
+        var freeDrive = false
+        ifNonNull(weakMapboxNavigation.get()?.getRoutes()) { routes ->
+            freeDrive = routes.isEmpty()
+        }
+        when (freeDrive) {
+            true -> {
+                // Do nothing
+                Log.d(TAG, "Free drive not supported")
+            }
+            false -> {
+                telemetryThreadControl.scope.launch {
+                    callbackDispatcher.resetRouteProgressProcessor()
+                    postUserEventDelegate =
+                            postUserFeedbackEventAfterInit // Telemetry is initialized and the user selected a route. Allow user feedback events to be posted
+                    handleSessionStart(callbackDispatcher.getFirstLocationAsync().await())
+                    sessionEndPredicate = { sessionStop() }
+                }
+            }
+        }
+    }
+    private fun sessionStop() {
+        Log.d(TAG, "TripSessionState.STOPPED")
+        postUserEventDelegate =
+                postUserEventBeforeInit // The navigation session is over, disallow posting user feedback events
+        when (dynamicValues.routeArrived.get()) {
+            true -> {
+                Log.d(TAG, "calling processCancellationAfterArrival()")
+                callbackDispatcher.flushBuffers()
+                dynamicValues.reset()
+            }
+            false -> {
+                telemetryThreadControl.scope.launch {
+                    Log.d(TAG, "calling processCancellation()")
+                    processCancellation()
+                    dynamicValues.sessionStarted.set(false)
+                }
+            }
+        }
+    }
     /**
      * The Navigation session is considered to be guided if it has been started and at least one route is active,
      * it is a free guided session otherwise
      */
-    private fun isNavigationGuided(): Boolean {
-        val routeAvailable = weakMapboxNavigation.get()?.getRoutes()?.isNotEmpty() ?: false
-        val sessionStarted = dynamicValues.sessionStarted.get()
-        return routeAvailable && sessionStarted
+    private fun isTelemetryAvailable(): Boolean {
+        return dynamicValues.originalRoute.get() != null
     }
     /**
      * Callback that monitors session start/stop. Session stop is interpreted as both cancel and stop of the session
@@ -180,30 +215,11 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         override fun onSessionStateChanged(tripSessionState: TripSessionState) {
             when (tripSessionState) {
                 TripSessionState.STARTED -> {
-                    telemetryThreadControl.scope.launch {
-                        callbackDispatcher.resetRouteProgressProcessor()
-                        postUserEventDelegate =
-                                postUserFeedbackEventAfterInit // Telemetry is initialized and the user selected a route. Allow user feedback events to be posted
-                        handleSessionStart(callbackDispatcher.getFirstLocationAsync().await())
-                    }
+                    sessionStart()
                 }
                 TripSessionState.STOPPED -> {
-                    Log.d(TAG, "TripSessionState.STOPPED")
-                    postUserEventDelegate =
-                            postUserEventBeforeInit // The navigation session is over, disallow posting user feedback events
-                    when (dynamicValues.routeArrived.get()) {
-                        true -> {
-                            Log.d(TAG, "calling processCancellationAfterArrival()")
-                            dynamicValues.reset()
-                        }
-                        false -> {
-                            telemetryThreadControl.scope.launch {
-                                Log.d(TAG, "calling processCancellation()")
-                                processCancellation()
-                                dynamicValues.sessionStarted.set(false)
-                            }
-                        }
-                    }
+                    sessionEndPredicate()
+                    sessionEndPredicate = {}
                 }
             }
         }
@@ -360,6 +376,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private var initializer =
             preInitializePredicate // The initialize dispatcher that points to either pre or post initialization lambda
 
+    private var sessionEndPredicate = { }
     /**
      * This method must be called before using the Telemetry object
      */
@@ -456,7 +473,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         val retVal = CompletableDeferred<Boolean>()
         val cancelEvent = NavigationCancelEvent(PhoneState(context))
         populateNavigationEvent(cancelEvent)
-        val result = telemetryCancelEventGate(cancelEvent)
+        val result = telemetryEventGate(cancelEvent)
         Log.d(TAG, "CANCEL event sent $result")
         callbackDispatcher.cancelCollectionAndPostFinalEvents().join()
         retVal.complete(true)
@@ -478,9 +495,11 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private fun handleSessionStart(startingLocation: Location) {
         telemetryThreadControl.scope.launch {
             Log.d(TAG, "Waiting in handleSessionStart")
-            val directionsRoute = callbackDispatcher.getOriginalRouteAsync().await()
-            Log.d(TAG, "The wait is over")
-            sessionStartHelper(directionsRoute, startingLocation)
+            dynamicValues.originalRoute.set(callbackDispatcher.getOriginalRouteAsync().await())
+            dynamicValues.originalRoute.get()?.let { directionsRoute ->
+                Log.d(TAG, "The wait is over")
+                sessionStartHelper(directionsRoute, startingLocation)
+            }
         }
     }
 
@@ -565,8 +584,16 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
                 dynamicValues.durationRemaining.set(routeData.routeProgress.durationRemaining())
                 when (routeData.routeProgress.currentState()) {
                     RouteProgressState.ROUTE_ARRIVED -> {
-                        processArrival()
-                        continueRunning = false
+                        when (dynamicValues.sessionStarted.get()) {
+                            true -> {
+                                processArrival()
+                                continueRunning = false
+                            }
+                            false -> {
+                                // Do nothing.
+                                Log.d(TAG, "route arrival received before a session start")
+                            }
+                        }
                     } // END
                     RouteProgressState.LOCATION_TRACKING -> {
                         dynamicValues.timeRemaining.set(callbackDispatcher.getRouteProgress().routeProgress.durationRemaining().toInt())
@@ -608,6 +635,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         // mapboxNavigation.registerFasterRouteObserver(fasterRouteObserver)
         mapboxNavigation.registerLocationObserver(callbackDispatcher)
         mapboxNavigation.registerRoutesObserver(callbackDispatcher)
+        mapboxNavigation.registerOffRouteObserver(callbackDispatcher)
     }
 
     override fun unregisterListeners(mapboxNavigation: MapboxNavigation) {
