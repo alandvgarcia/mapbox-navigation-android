@@ -41,6 +41,7 @@ import com.mapbox.navigation.metrics.internal.NavigationAppUserTurnstileEvent
 import com.mapbox.navigation.utils.exceptions.NavigationException
 import com.mapbox.navigation.utils.thread.JobControl
 import com.mapbox.navigation.utils.thread.ifChannelException
+import com.mapbox.navigation.utils.thread.monitorChannelWithException
 import com.mapbox.navigation.utils.time.Time
 import java.lang.ref.WeakReference
 import java.util.ArrayDeque
@@ -109,7 +110,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     internal const val LOCATION_BUFFER_MAX_SIZE = 20
     private const val ONE_SECOND = 1000
     internal const val TAG = "MAPBOX_TELEMETRY"
-    internal const val EVENT_VERSION = 7
+    private const val EVENT_VERSION = 7
     private lateinit var context: Context // Must be context.getApplicationContext
     private lateinit var mapboxToken: String
     private lateinit var telemetryThreadControl: JobControl
@@ -133,6 +134,9 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     private val currentLocation: AtomicReference<Location?> = AtomicReference(null)
 
     private lateinit var callbackDispatcher: TelemetryLocationAndProgressDispatcher
+
+    private fun telemetryCancelEventGate(event: MetricEvent) =
+        dynamicValues.sessionStarted.get() && callbackDispatcher.getOriginalRouteReadOnly() != null
 
     private fun telemetryEventGate(event: MetricEvent) =
             when (isNavigationGuided()) {
@@ -196,6 +200,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
                             telemetryThreadControl.scope.launch {
                                 Log.d(TAG, "calling processCancellation()")
                                 processCancellation()
+                                dynamicValues.sessionStarted.set(false)
                             }
                         }
                     }
@@ -325,19 +330,20 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
      */
     private val preInitializePredicate: (Context, String, MapboxNavigation, MetricsReporter, String, JobControl, NavigationOptions, String) -> Boolean =
             { context, token, mapboxNavigation, metricsReporter, name, jobControl, options, userAgent ->
+                telemetryThreadControl = jobControl
                 weakMapboxNavigation = WeakReference(mapboxNavigation)
+                registerForNotification(mapboxNavigation)
+                monitorOffRouteEvents()
                 populateOriginalRouteConditionally()
                 this.context = context
                 localUserAgent = userAgent
                 locationEngineNameExternal = name
                 navigationOptions = options
-                telemetryThreadControl = jobControl
                 mapboxToken = token
                 validateAccessToken(mapboxToken)
                 this.metricsReporter = metricsReporter
                 initializer =
                         postInitializePredicate // prevent primaryInitializer() from being called more than once.
-                registerForNotification(mapboxNavigation)
                 postTurnstileEvent()
                 monitorJobCancelation()
                 Log.i(TAG, "Valid initialization")
@@ -377,6 +383,17 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
             userAgent
     )
 
+    private fun monitorOffRouteEvents() {
+        telemetryThreadControl.scope.monitorChannelWithException(callbackDispatcher.getOffRouteEventChannel(), { offRoute ->
+            when (offRoute) {
+                true -> {
+                    handleOffRouteEvent()
+                }
+                false -> {
+                }
+            }
+        })
+    }
     private fun monitorJobCancelation() {
         CoroutineScope(Job() + Dispatchers.IO).launch {
             select {
@@ -439,7 +456,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
         val retVal = CompletableDeferred<Boolean>()
         val cancelEvent = NavigationCancelEvent(PhoneState(context))
         populateNavigationEvent(cancelEvent)
-        val result = telemetryEventGate(cancelEvent)
+        val result = telemetryCancelEventGate(cancelEvent)
         Log.d(TAG, "CANCEL event sent $result")
         callbackDispatcher.cancelCollectionAndPostFinalEvents().join()
         retVal.complete(true)
@@ -497,6 +514,7 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     ) {
         dynamicValues.sessionId = TelemetryUtils.obtainUniversalUniqueIdentifier()
         dynamicValues.sessionStartTime = Date()
+        dynamicValues.sessionStarted.set(true)
         telemetryThreadControl.scope.launch {
             // Initialize identifiers unique to this session
             populateMetadataWithInitialValues(populateEventMetadataAndUpdateState(
@@ -584,7 +602,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
 
     private fun registerForNotification(mapboxNavigation: MapboxNavigation) {
         callbackDispatcher = TelemetryLocationAndProgressDispatcher(telemetryThreadControl.scope) // The class responds to most notification events
-        mapboxNavigation.registerOffRouteObserver(rerouteObserver)
         mapboxNavigation.registerRouteProgressObserver(callbackDispatcher)
         mapboxNavigation.registerTripSessionStateObserver(sessionStateObserver)
         // TODO Removing Faster Route temporarily as legacy isn't sending these events at the moment
@@ -594,7 +611,6 @@ internal object MapboxNavigationTelemetry : MapboxNavigationTelemetryInterface {
     }
 
     override fun unregisterListeners(mapboxNavigation: MapboxNavigation) {
-        mapboxNavigation.unregisterOffRouteObserver(rerouteObserver)
         mapboxNavigation.unregisterRouteProgressObserver(callbackDispatcher)
         mapboxNavigation.unregisterTripSessionStateObserver(sessionStateObserver)
         // TODO Removing Faster Route temporarily as legacy isn't sending these events at the moment

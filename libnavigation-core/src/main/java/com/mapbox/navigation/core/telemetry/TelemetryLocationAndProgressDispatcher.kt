@@ -9,6 +9,7 @@ import com.mapbox.navigation.core.directions.session.RoutesObserver
 import com.mapbox.navigation.core.telemetry.MapboxNavigationTelemetry.LOCATION_BUFFER_MAX_SIZE
 import com.mapbox.navigation.core.telemetry.MapboxNavigationTelemetry.TAG
 import com.mapbox.navigation.core.trip.session.LocationObserver
+import com.mapbox.navigation.core.trip.session.OffRouteObserver
 import com.mapbox.navigation.core.trip.session.RouteProgressObserver
 import com.mapbox.navigation.utils.thread.ThreadController
 import com.mapbox.navigation.utils.thread.monitorChannelWithException
@@ -25,11 +26,12 @@ import kotlinx.coroutines.launch
 
 typealias RouteProgressReference = (RouteProgress) -> Unit
 internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
-    RouteProgressObserver, LocationObserver, RoutesObserver {
+    RouteProgressObserver, LocationObserver, RoutesObserver, OffRouteObserver {
     private var lastLocation: AtomicReference<Location?> = AtomicReference(null)
     private var routeProgress: AtomicReference<RouteProgressWithTimestamp> =
         AtomicReference(RouteProgressWithTimestamp(0, RouteProgress.Builder().build()))
-    private val channelOffRouteEvent = Channel<RouteAvailable>(Channel.CONFLATED)
+    private val channelOffRouteEvent = Channel<Boolean>(Channel.CONFLATED)
+    private val channelNewRouteAvailable = Channel<RouteAvailable>(Channel.CONFLATED)
     private val channelLocationReceived = Channel<Location>(Channel.CONFLATED)
     private val channelOnRouteProgress =
         Channel<RouteProgressWithTimestamp>(Channel.CONFLATED) // we want just the last notification
@@ -189,7 +191,7 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
     /**
      * This channel becomes signaled if a navigation route is selected
      */
-    fun getDirectionsRouteChannel(): ReceiveChannel<RouteAvailable> = channelOffRouteEvent
+    fun getDirectionsRouteChannel(): ReceiveChannel<RouteAvailable> = channelNewRouteAvailable
 
     fun getCopyOfCurrentLocationBuffer() = currentLocationBuffer.getCopy()
 
@@ -201,6 +203,7 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
         routeProgressPredicate.set { routeProgress -> beforeArrival(routeProgress) }
     }
 
+    fun getOffRouteEventChannel(): ReceiveChannel<Boolean> = channelOffRouteEvent
     /**
      * This method is called for any state change, excluding RouteProgressState.ROUTE_ARRIVED.
      * It forwards the route progress data to a listener and saves it to a local variable
@@ -242,8 +245,6 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
     fun getLastLocation(): Location? = lastLocation.get()
 
     fun getRouteProgress(): RouteProgressWithTimestamp = routeProgress.get()
-
-    fun isRouteAvailable(): RouteAvailable? = originalRoute.get()
 
     fun clearOriginalRoute() {
         originalRoute.set(null)
@@ -311,10 +312,14 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
             }
             false -> {
                 val date = Date()
-                channelOffRouteEvent.offer(RouteAvailable(routes[0], date))
+                channelNewRouteAvailable.offer(RouteAvailable(routes[0], date))
                 originalRouteDelegate(routes)
                 notifyOfNewRoute(routes)
             }
         }
+    }
+
+    override fun onOffRouteStateChanged(offRoute: Boolean) {
+        channelOffRouteEvent.offer(offRoute)
     }
 }
