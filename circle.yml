@@ -30,7 +30,7 @@ workflows:
       - release-ui-1_0:
           filters:
             tags:
-              only: /^release-ui-.*/
+              only: /^release-ui-.*-core-.*/
             branches:
               ignore: /.*/
       - release-core-1_0-qa:
@@ -42,7 +42,7 @@ workflows:
       - release-ui-1_0-qa:
           filters:
             tags:
-              only: /^qa-release-ui-.*/
+              only: /^qa-release-ui-.*-core-.*/
             branches:
               ignore: /.*/
       - release-core-1_0-prod:
@@ -55,7 +55,7 @@ workflows:
       - release-ui-1_0-prod:
           filters:
             tags:
-              only: /^prod-release-ui-.*/
+              only: /^prod-release-ui-.*-core-.*/
             branches:
               ignore: /.*/
       - ui-tests-1_0
@@ -245,6 +245,47 @@ commands:
           command: make 1.0-ui-unit-tests
       - store-results:
           module_target: "libnavigation-ui"
+
+  generate-core-version-name:
+    parameters:
+      version:
+        description: version name
+        type: string
+    steps:
+      - run:
+          name: Generate Core version name
+          command: |
+            if [[ parameters.version == release-core-.* ]]; then
+              POM_CORE_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 3`
+            elif [[ parameters.version == qa-release-core-.*
+                      || parameters.version == prod-release-core-.* ]]; then
+              POM_CORE_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 4`
+            else
+              POM_CORE_VERSION_NAME=<< parameters.version >>
+            fi
+            echo "export POM_CORE_VERSION_NAME=$POM_CORE_VERSION_NAME" >> $BASH_ENV
+
+  generate-ui-version-name:
+    parameters:
+      version:
+        description: version name
+        type: string
+    steps:
+      - run:
+          name: Generate UI version name
+          command: |
+            if [[ parameters.version == release-core-.*ui-.* ]]; then
+              POM_UI_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 3`
+              POM_CORE_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 5`
+            elif [[ parameters.version == qa-release-core-.*-ui-.*
+                      || parameters.version == prod-release-core-.*-ui-.* ]]; then
+              POM_UI_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 4`
+              POM_CORE_VERSION_NAME=`echo << parameters.version >> | cut -d '-' -f 6`
+            else
+              POM_UI_VERSION_NAME=<< parameters.version >>
+            fi
+            echo "export POM_UI_VERSION_NAME=$POM_UI_VERSION_NAME" >> $BASH_ENV
+            echo "export POM_CORE_VERSION_NAME=$POM_CORE_VERSION_NAME" >> $BASH_ENV
 
   run-firebase-instrumentation:
     parameters:
@@ -459,6 +500,8 @@ jobs:
     docker:
       - image: mbgl/61abee1674:android-ndk-r18
     steps:
+      - generate-core-version-name:
+          version: "1.0.0-SNAPSHOT"
       - checkout
       - build-release-core-1_0
       - generate-documentation
@@ -478,6 +521,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox
     steps:
+      - generate-core-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-core-1_0
       - generate-documentation
@@ -496,6 +541,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox_private
     steps:
+      - generate-core-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-core-1_0
       - generate-documentation
@@ -514,6 +561,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox_collab
     steps:
+      - generate-core-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-core-1_0
       - generate-documentation
@@ -530,6 +579,8 @@ jobs:
     docker:
       - image: mbgl/61abee1674:android-ndk-r18
     steps:
+      - generate-ui-version-name:
+          version: "1.0.0-SNAPSHOT"
       - checkout
       - build-release-ui-1_0
       - generate-documentation
@@ -549,6 +600,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox
     steps:
+      - generate-ui-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-ui-1_0
       - generate-documentation
@@ -567,6 +620,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox_private
     steps:
+      - generate-ui-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-ui-1_0
       - generate-documentation
@@ -585,6 +640,8 @@ jobs:
     environment:
       BINTRAY_REPO: mapbox_collab
     steps:
+      - generate-ui-version-name:
+          version: $CIRCLE_TAG
       - checkout
       - build-release-ui-1_0
       - generate-documentation
