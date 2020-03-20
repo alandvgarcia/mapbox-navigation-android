@@ -194,7 +194,7 @@ constructor(
         }
 
         fasterRouteController = FasterRouteController(directionsSession, tripSession)
-        routeRefreshController = RouteRefreshController(accessToken ?: "", tripSession)
+        routeRefreshController = RouteRefreshController(accessToken ?: "", directionsSession, tripSession)
         routeRefreshController.start()
     }
 

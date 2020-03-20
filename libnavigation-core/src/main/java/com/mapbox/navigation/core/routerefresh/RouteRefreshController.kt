@@ -2,6 +2,7 @@ package com.mapbox.navigation.core.routerefresh
 
 import android.util.Log
 import com.mapbox.api.directions.v5.models.DirectionsRoute
+import com.mapbox.navigation.core.directions.session.DirectionsSession
 import com.mapbox.navigation.core.trip.session.TripSession
 import com.mapbox.navigation.utils.timer.MapboxTimer
 import java.util.concurrent.TimeUnit
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Job
  */
 internal class RouteRefreshController(
     private var accessToken: String,
+    private val directionsSession: DirectionsSession,
     private val tripSession: TripSession
 ) {
     private val routerRefreshTimer = MapboxTimer()
@@ -50,6 +52,11 @@ internal class RouteRefreshController(
         override fun onRefresh(directionsRoute: DirectionsRoute) {
             Log.i("RouteRefresh", "Successful refresh")
             tripSession.route = directionsRoute
+            val directionsSessionRoutes = directionsSession.routes.toMutableList()
+            if (directionsSessionRoutes.isNotEmpty()) {
+                directionsSessionRoutes[0] = directionsRoute
+                directionsSession.routes = directionsSessionRoutes
+            }
         }
 
         override fun onError(error: RouteRefreshError) {
