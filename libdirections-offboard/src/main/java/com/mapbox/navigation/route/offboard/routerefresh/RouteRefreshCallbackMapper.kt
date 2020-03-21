@@ -1,7 +1,9 @@
-package com.mapbox.navigation.core.routerefresh
+package com.mapbox.navigation.route.offboard.routerefresh
 
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.api.directionsrefresh.v1.models.DirectionsRefreshResponse
+import com.mapbox.navigation.base.route.RouteRefreshCallback
+import com.mapbox.navigation.base.route.RouteRefreshError
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

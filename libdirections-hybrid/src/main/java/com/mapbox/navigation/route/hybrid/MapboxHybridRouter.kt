@@ -4,6 +4,7 @@ import com.mapbox.annotation.navigation.module.MapboxNavigationModule
 import com.mapbox.annotation.navigation.module.MapboxNavigationModuleType
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.api.directions.v5.models.RouteOptions
+import com.mapbox.navigation.base.route.RouteRefreshCallback
 import com.mapbox.navigation.base.route.Router
 import com.mapbox.navigation.utils.network.NetworkStatusService
 import com.mapbox.navigation.utils.thread.ThreadController
@@ -113,6 +114,10 @@ class MapboxHybridRouter(
         callback: Router.Callback
     ) {
         routeDispatchHandler.get().execute(routeOptions, callback)
+    }
+
+    override fun requestRouteRefresh(route: DirectionsRoute, legIndex: Int, callback: RouteRefreshCallback) {
+        offboardRouter.requestRouteRefresh(route, legIndex, callback)
     }
 
     override fun cancel() {

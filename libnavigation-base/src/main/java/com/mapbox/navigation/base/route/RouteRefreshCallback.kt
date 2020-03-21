@@ -1,4 +1,4 @@
-package com.mapbox.navigation.core.routerefresh
+package com.mapbox.navigation.base.route
 
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 

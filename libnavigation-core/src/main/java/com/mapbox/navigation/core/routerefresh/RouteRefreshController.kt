@@ -1,12 +1,15 @@
 package com.mapbox.navigation.core.routerefresh
 
 import android.util.Log
+import com.mapbox.api.directions.v5.DirectionsCriteria
 import com.mapbox.api.directions.v5.models.DirectionsRoute
+import com.mapbox.navigation.base.route.RouteRefreshCallback
+import com.mapbox.navigation.base.route.RouteRefreshError
 import com.mapbox.navigation.core.directions.session.DirectionsSession
 import com.mapbox.navigation.core.trip.session.TripSession
 import com.mapbox.navigation.utils.timer.MapboxTimer
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Job
+import java.util.concurrent.TimeUnit
 
 /**
  * This class is responsible for refreshing the current direction route's traffic.
@@ -18,13 +21,10 @@ import kotlinx.coroutines.Job
  * can be refreshed are handled by this class. Calling [start] will restart the refresh timer.
  */
 internal class RouteRefreshController(
-    private var accessToken: String,
     private val directionsSession: DirectionsSession,
     private val tripSession: TripSession
 ) {
     private val routerRefreshTimer = MapboxTimer()
-    private val routeRefreshRetrofit = RouteRefreshRetrofit()
-    private val routeRefreshApi = RouteRefreshApi(routeRefreshRetrofit)
 
     init {
         routerRefreshTimer.restartAfterMillis = TimeUnit.MINUTES.toMillis(5)
@@ -33,11 +33,12 @@ internal class RouteRefreshController(
     fun start(): Job {
         stop()
         return routerRefreshTimer.startTimer {
-            if (routeRefreshApi.supportsRefresh(tripSession.route)) {
-                routeRefreshApi.refreshRoute(
-                    accessToken,
-                    tripSession.route,
-                    tripSession.getRouteProgress(),
+            val route = tripSession.route
+            val legIndex = tripSession.getRouteProgress()?.currentLegProgress()?.legIndex() ?: 0
+            if (supportsRefresh(route)) {
+                directionsSession.requestRouteRefresh(
+                    route!!,
+                    legIndex,
                     routeRefreshCallback)
             }
         }
@@ -45,6 +46,12 @@ internal class RouteRefreshController(
 
     fun stop() {
         routerRefreshTimer.stopJobs()
+    }
+
+    private fun supportsRefresh(route: DirectionsRoute?): Boolean {
+        val isTrafficProfile = route?.routeOptions()
+            ?.profile()?.equals(DirectionsCriteria.PROFILE_DRIVING_TRAFFIC)
+        return isTrafficProfile == true
     }
 
     private val routeRefreshCallback = object : RouteRefreshCallback {

@@ -24,6 +24,12 @@ interface Router {
      */
     fun cancel()
 
+    fun requestRouteRefresh(
+        route: DirectionsRoute,
+        legIndex: Int,
+        callback: RouteRefreshCallback
+    )
+
     /**
      * Callback for Router fetching
      */

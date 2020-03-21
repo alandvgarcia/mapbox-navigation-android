@@ -6,10 +6,15 @@ import com.mapbox.annotation.navigation.module.MapboxNavigationModuleType
 import com.mapbox.api.directions.v5.DirectionsCriteria
 import com.mapbox.api.directions.v5.MapboxDirections
 import com.mapbox.api.directions.v5.models.DirectionsResponse
+import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.api.directions.v5.models.RouteOptions
+import com.mapbox.api.directionsrefresh.v1.MapboxDirectionsRefresh
 import com.mapbox.navigation.base.accounts.SkuTokenProvider
+import com.mapbox.navigation.base.route.RouteRefreshCallback
+import com.mapbox.navigation.base.route.RouteRefreshError
 import com.mapbox.navigation.base.route.Router
 import com.mapbox.navigation.route.offboard.router.routeOptions
+import com.mapbox.navigation.route.offboard.routerefresh.RouteRefreshCallbackMapper
 import com.mapbox.navigation.utils.exceptions.NavigationException
 import retrofit2.Call
 import retrofit2.Callback
@@ -69,5 +74,21 @@ class MapboxOffboardRouter(
     override fun cancel() {
         mapboxDirections?.cancelCall()
         mapboxDirections = null
+    }
+
+    override fun requestRouteRefresh(route: DirectionsRoute, legIndex: Int, callback: RouteRefreshCallback) {
+        return try {
+            val refreshBuilder = MapboxDirectionsRefresh.builder()
+                .accessToken(accessToken)
+                .requestId(route.routeOptions()?.requestUuid())
+                .legIndex(legIndex)
+
+            val mapboxDirectionsRefresh = refreshBuilder.build()
+            mapboxDirectionsRefresh.enqueueCall(RouteRefreshCallbackMapper(route, legIndex, callback))
+        } catch (throwable: Throwable) {
+            callback.onError(RouteRefreshError(
+                message = "Route refresh call failed",
+                throwable = throwable))
+        }
     }
 }
