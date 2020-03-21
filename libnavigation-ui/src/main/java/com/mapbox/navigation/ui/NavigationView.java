@@ -51,6 +51,8 @@ import com.mapbox.navigation.ui.summary.SummaryBottomSheet;
 import com.mapbox.navigation.ui.utils.LocaleEx;
 import com.mapbox.navigation.utils.extensions.ContextEx;
 
+import java.util.Locale;
+
 /**
  * View that creates the drop-in UI.
  * <p>
@@ -720,13 +722,15 @@ public class NavigationView extends CoordinatorLayout implements LifecycleOwner,
     establishTimeFormat(options);
   }
 
-  private void establishDistanceFormatter(NavigationViewOptions options) {
-    String unitType = establishUnitType(options);
-    String language = establishLanguage(options);
-    int roundingIncrement = establishRoundingIncrement(options);
-    DistanceFormatter distanceFormatter =
-        new MapboxDistanceFormatter(getContext(), language, unitType, roundingIncrement);
-
+  private void establishDistanceFormatter(final NavigationViewOptions options) {
+    final String unitType = establishUnitType(options);
+    final Locale language = LocaleEx.getLocaleDirectionsRoute(options.directionsRoute(), getContext());
+    final int roundingIncrement = establishRoundingIncrement(options);
+    final DistanceFormatter distanceFormatter = MapboxDistanceFormatter.builder(getContext())
+            .withRoundingIncrement(roundingIncrement)
+            .withUnitType(unitType)
+            .withLocale(language)
+            .build();
     instructionView.setDistanceFormatter(distanceFormatter);
     summaryBottomSheet.setDistanceFormatter(distanceFormatter);
   }
@@ -734,11 +738,6 @@ public class NavigationView extends CoordinatorLayout implements LifecycleOwner,
   private int establishRoundingIncrement(NavigationViewOptions navigationViewOptions) {
     NavigationOptions navigationOptions = navigationViewOptions.navigationOptions();
     return navigationOptions.getRoundingIncrement();
-  }
-
-  private String establishLanguage(NavigationViewOptions options) {
-    String voiceLanguage = options.directionsRoute().voiceLanguage();
-    return voiceLanguage != null ? voiceLanguage : ContextEx.inferDeviceLanguage(getContext());
   }
 
   private String establishUnitType(NavigationViewOptions options) {

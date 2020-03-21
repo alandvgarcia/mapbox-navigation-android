@@ -23,6 +23,7 @@ import com.mapbox.navigation.core.trip.session.MapboxTripSession
 import com.mapbox.navigation.examples.R
 import com.mapbox.navigation.navigator.MapboxNativeNavigatorImpl
 import com.mapbox.navigation.trip.notification.MapboxTripNotification
+import com.mapbox.navigation.utils.extensions.inferDeviceLocale
 import kotlinx.android.synthetic.main.activity_trip_session.*
 import timber.log.Timber
 
@@ -89,19 +90,21 @@ class TripSessionActivityKt : AppCompatActivity(), OnMapReadyCallback {
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
+        val formatter = MapboxDistanceFormatter.builder(this)
+            .withUnitType(METRIC)
+            .withRoundingIncrement(ROUNDING_INCREMENT_FIFTY)
+            .withLocale(this.inferDeviceLocale())
+            .build()
+
         tripSession = MapboxTripSession(
             MapboxTripService(
                 applicationContext,
                 MapboxTripNotification(
                     applicationContext,
                     NavigationOptions.Builder()
-                        .distanceFormatter(MapboxDistanceFormatter(
-                            applicationContext,
-                            "en",
-                            METRIC,
-                            ROUNDING_INCREMENT_FIFTY
-                        )
-                    ).timeFormatType(TWENTY_FOUR_HOURS).build()
+                        .distanceFormatter(formatter)
+                        .timeFormatType(TWENTY_FOUR_HOURS)
+                        .build()
                 )
             ),
             LocationEngineProvider.getBestLocationEngine(applicationContext),

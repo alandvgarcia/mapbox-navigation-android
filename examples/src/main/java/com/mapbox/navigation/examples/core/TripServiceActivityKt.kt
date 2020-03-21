@@ -22,6 +22,7 @@ import com.mapbox.navigation.core.trip.service.MapboxTripService
 import com.mapbox.navigation.examples.R
 import com.mapbox.navigation.trip.notification.MapboxTripNotification
 import com.mapbox.navigation.ui.route.NavigationMapRoute
+import com.mapbox.navigation.utils.extensions.inferDeviceLocale
 import com.mapbox.navigation.utils.thread.ThreadController
 import com.mapbox.navigation.utils.thread.monitorChannelWithException
 import kotlinx.android.synthetic.main.activity_trip_service.mapView
@@ -76,17 +77,18 @@ class TripServiceActivityKt : AppCompatActivity(), OnMapReadyCallback {
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
+        val formatter = MapboxDistanceFormatter.builder(this)
+            .withRoundingIncrement(ROUNDING_INCREMENT_FIFTY)
+            .withUnitType(METRIC)
+            .withLocale(this.inferDeviceLocale())
+            .build()
+
         mapboxTripNotification = MapboxTripNotification(
             applicationContext,
             NavigationOptions.Builder()
-                .distanceFormatter(
-                    MapboxDistanceFormatter(
-                        applicationContext,
-                        "en",
-                        METRIC,
-                        ROUNDING_INCREMENT_FIFTY
-                    )
-                ).timeFormatType(TWENTY_FOUR_HOURS).build()
+                .distanceFormatter(formatter)
+                .timeFormatType(TWENTY_FOUR_HOURS)
+                .build()
         )
 
         // If you want to use Mapbox provided Service do this

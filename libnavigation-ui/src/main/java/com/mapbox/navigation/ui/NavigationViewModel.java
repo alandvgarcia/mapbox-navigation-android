@@ -52,6 +52,7 @@ import org.jetbrains.annotations.TestOnly;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import static com.mapbox.navigation.core.telemetry.events.TelemetryUserFeedback.FEEDBACK_SOURCE_UI;
 
@@ -356,10 +357,15 @@ public class NavigationViewModel extends AndroidViewModel {
     return navigationOptions.getRoundingIncrement();
   }
 
-  private DistanceFormatter buildDistanceFormatter(NavigationViewOptions options) {
-    String unitType = initializeUnitType(options);
-    int roundingIncrement = initializeRoundingIncrement(options);
-    return new MapboxDistanceFormatter(getApplication(), language, unitType, roundingIncrement);
+  private DistanceFormatter buildDistanceFormatter(final NavigationViewOptions options) {
+    final String unitType = initializeUnitType(options);
+    final int roundingIncrement = initializeRoundingIncrement(options);
+    final Locale locale = LocaleEx.getLocaleDirectionsRoute(options.directionsRoute(), getApplication());
+    return new MapboxDistanceFormatter.Builder(getApplication())
+            .withUnitType(unitType)
+            .withRoundingIncrement(roundingIncrement)
+            .withLocale(locale)
+            .build();
   }
 
   private void initializeNavigationSpeechPlayer(NavigationViewOptions options) {

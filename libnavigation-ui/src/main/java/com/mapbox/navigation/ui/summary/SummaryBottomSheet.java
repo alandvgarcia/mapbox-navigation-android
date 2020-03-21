@@ -29,6 +29,7 @@ import com.mapbox.navigation.ui.utils.LocaleEx;
 import com.mapbox.navigation.utils.extensions.ContextEx;
 
 import java.text.DecimalFormat;
+import java.util.Locale;
 
 /**
  * A view with {@link com.google.android.material.bottomsheet.BottomSheetBehavior}
@@ -197,10 +198,13 @@ public class SummaryBottomSheet extends FrameLayout implements LifecycleObserver
   }
 
   private void initializeDistanceFormatter() {
-    String language = ContextEx.inferDeviceLanguage(getContext());
-    String unitType = LocaleEx.getUnitTypeForLocale(ContextEx.inferDeviceLocale(getContext()));
-    distanceFormatter =
-      new MapboxDistanceFormatter(getContext(), language, unitType, RoundingIncrementKt.ROUNDING_INCREMENT_FIFTY);
+    final Locale locale = ContextEx.inferDeviceLocale(getContext());
+    final String unitType = LocaleEx.getUnitTypeForLocale(locale);
+    distanceFormatter = new MapboxDistanceFormatter.Builder(getContext())
+            .withUnitType(unitType)
+            .withRoundingIncrement(RoundingIncrementKt.ROUNDING_INCREMENT_FIFTY)
+            .withLocale(locale)
+            .build();
   }
 
   /**

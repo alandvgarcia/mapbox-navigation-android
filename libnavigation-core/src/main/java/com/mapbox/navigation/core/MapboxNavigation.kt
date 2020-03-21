@@ -47,6 +47,7 @@ import com.mapbox.navigation.core.trip.session.VoiceInstructionsObserver
 import com.mapbox.navigation.metrics.MapboxMetricsReporter
 import com.mapbox.navigation.navigator.MapboxNativeNavigator
 import com.mapbox.navigation.navigator.MapboxNativeNavigatorImpl
+import com.mapbox.navigation.utils.extensions.inferDeviceLocale
 import com.mapbox.navigation.utils.network.NetworkStatusService
 import com.mapbox.navigation.utils.thread.JobControl
 import com.mapbox.navigation.utils.thread.ThreadController
@@ -564,18 +565,15 @@ constructor(
          */
         @JvmStatic
         fun defaultNavigationOptions(context: Context, accessToken: String?): NavigationOptions {
+            val distanceFormatter = MapboxDistanceFormatter.builder(context)
+                .withUnitType(UNDEFINED)
+                .withRoundingIncrement(ROUNDING_INCREMENT_FIFTY)
+                .build()
             val builder = NavigationOptions.Builder()
                 .timeFormatType(NONE_SPECIFIED)
                 .roundingIncrement(ROUNDING_INCREMENT_FIFTY)
                 .navigatorPollingDelay(DEFAULT_NAVIGATOR_POLLING_DELAY)
-                .distanceFormatter(
-                    MapboxDistanceFormatter(
-                        context.applicationContext,
-                        null,
-                        UNDEFINED,
-                        ROUNDING_INCREMENT_FIFTY
-                    )
-                )
+                .distanceFormatter(distanceFormatter)
 
             // TODO provide a production routing tiles endpoint
             val tilesUri = URI("")

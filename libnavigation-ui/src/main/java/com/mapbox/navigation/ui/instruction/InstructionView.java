@@ -62,6 +62,9 @@ import com.mapbox.navigation.ui.summary.list.InstructionListAdapter;
 import com.mapbox.navigation.ui.utils.LocaleEx;
 import com.mapbox.navigation.utils.extensions.ContextEx;
 import com.squareup.picasso.Picasso;
+
+import java.util.Locale;
+
 import timber.log.Timber;
 
 /**
@@ -485,10 +488,14 @@ public class InstructionView extends RelativeLayout implements LifecycleObserver
    * Inflates this layout needed for this view and initializes the locale as the device locale.
    */
   private void initialize() {
-    String language = ContextEx.inferDeviceLanguage(getContext());
-    String unitType = LocaleEx.getUnitTypeForLocale(ContextEx.inferDeviceLocale(getContext()));
-    int roundingIncrement = NavigationConstants.ROUNDING_INCREMENT_FIFTY;
-    distanceFormatter = new MapboxDistanceFormatter(getContext(), language, unitType, roundingIncrement);
+    final String unitType = LocaleEx.getUnitTypeForLocale(ContextEx.inferDeviceLocale(getContext()));
+    final int roundingIncrement = NavigationConstants.ROUNDING_INCREMENT_FIFTY;
+    final Locale locale = ContextEx.inferDeviceLocale(getContext());
+    distanceFormatter = new MapboxDistanceFormatter.Builder(getContext())
+            .withUnitType(unitType)
+            .withRoundingIncrement(roundingIncrement)
+            .withLocale(locale)
+            .build();
     inflate(getContext(), R.layout.instruction_view_layout, this);
   }
 

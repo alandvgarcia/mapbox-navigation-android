@@ -8,8 +8,10 @@ import com.mapbox.navigation.base.formatter.DistanceFormatter;
 import com.mapbox.navigation.base.trip.model.RouteProgress;
 import com.mapbox.navigation.base.typedef.TimeFormatType;
 import com.mapbox.navigation.trip.notification.utils.time.TimeFormatter;
+import com.mapbox.navigation.ui.utils.LocaleEx;
 
 import java.util.Calendar;
+import java.util.Locale;
 
 public class SummaryModel {
 
@@ -19,9 +21,11 @@ public class SummaryModel {
 
   public SummaryModel(Context context, DistanceFormatter distanceFormatter, RouteProgress progress,
                       @TimeFormatType int timeFormatType) {
+    final Locale locale = progress.route() == null ? null :
+            LocaleEx.getLocaleDirectionsRoute(progress.route(), context);
     distanceRemaining = distanceFormatter.formatDistance(progress.distanceRemaining()).toString();
     double legDurationRemaining = progress.currentLegProgress().durationRemaining();
-    timeRemaining = TimeFormatter.formatTimeRemaining(context, legDurationRemaining);
+    timeRemaining = TimeFormatter.formatTimeRemaining(context, legDurationRemaining, locale);
     Calendar time = Calendar.getInstance();
     boolean isTwentyFourHourFormat = DateFormat.is24HourFormat(context);
     arrivalTime = TimeFormatter.formatTime(time, legDurationRemaining, timeFormatType, isTwentyFourHourFormat);
