@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 
 private const val DISPATCHER_TAG = "TELEMETRY_TEST"
 typealias RouteProgressReference = (RouteProgress) -> Unit
+
 internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
     RouteProgressObserver, LocationObserver, RoutesObserver, OffRouteObserver {
     private var lastLocation: AtomicReference<Location?> = AtomicReference(null)
@@ -56,11 +57,11 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
     private var firstLocationValue: Location? = null
     private var priorState = RouteProgressState.ROUTE_INVALID
     private val routeProgressPredicate = AtomicReference<RouteProgressReference>()
-    private val newRouteAvailable = AtomicReference<DirectionsRoute>(null)
 
     init {
         routeProgressPredicate.set { routeProgress -> beforeArrival(routeProgress) }
     }
+
     /**
      * This class provides thread-safe access to a mutable list of locations
      */
@@ -205,8 +206,6 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
         routeProgressPredicate.set { routeProgress -> beforeArrival(routeProgress) }
     }
 
-    fun isPossibleDepartureEvent(): DirectionsRoute? = newRouteAvailable.get()
-
     fun getOffRouteEventChannel(): ReceiveChannel<Boolean> = channelOffRouteEvent
     /**
      * This method is called for any state change, excluding RouteProgressState.ROUTE_ARRIVED.
@@ -227,7 +226,8 @@ internal class TelemetryLocationAndProgressDispatcher(scope: CoroutineScope) :
      */
     private fun afterArrival(routeProgress: RouteProgress) {
         when (routeProgress.currentState()) {
-            priorState -> { }
+            priorState -> {
+            }
             else -> {
                 priorState = routeProgress.currentState() ?: priorState
                 Log.d(TAG, "route progress state = ${routeProgress.currentState()}")
