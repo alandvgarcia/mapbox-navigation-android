@@ -8,6 +8,8 @@ import android.view.View
 import android.view.View.GONE
 import android.view.View.VISIBLE
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.snackbar.Snackbar.LENGTH_LONG
 import com.mapbox.android.core.location.LocationEngine
 import com.mapbox.android.core.location.LocationEngineCallback
 import com.mapbox.android.core.location.LocationEngineProvider
@@ -57,12 +59,12 @@ import com.mapbox.navigation.ui.utils.ViewUtils
 import com.mapbox.navigation.ui.voice.NavigationSpeechPlayer
 import com.mapbox.navigation.ui.voice.SpeechPlayerProvider
 import com.mapbox.navigation.ui.voice.VoiceInstructionLoader
-import java.io.File
-import java.lang.ref.WeakReference
-import java.util.Locale
 import kotlinx.android.synthetic.main.activity_instruction_view_layout.*
 import okhttp3.Cache
 import timber.log.Timber
+import java.io.File
+import java.lang.ref.WeakReference
+import java.util.Locale
 
 class InstructionViewActivity : AppCompatActivity(), OnMapReadyCallback,
     FeedbackBottomSheetListener {
@@ -291,6 +293,7 @@ class InstructionViewActivity : AppCompatActivity(), OnMapReadyCallback,
         startNavigation.visibility = VISIBLE
         startNavigation.isEnabled = false
         instructionView.visibility = GONE
+        Snackbar.make(container, R.string.msg_long_press_for_destination, LENGTH_LONG).show()
         feedbackButton = instructionView.retrieveFeedbackButton().apply {
             hide()
             addOnClickListener {

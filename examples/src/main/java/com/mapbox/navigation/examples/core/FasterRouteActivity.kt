@@ -9,6 +9,8 @@ import android.view.View.GONE
 import android.view.View.VISIBLE
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.snackbar.Snackbar.LENGTH_LONG
 import com.mapbox.android.core.location.LocationEngineCallback
 import com.mapbox.android.core.location.LocationEngineProvider
 import com.mapbox.android.core.location.LocationEngineRequest
@@ -42,10 +44,10 @@ import com.mapbox.navigation.examples.utils.extensions.toPoint
 import com.mapbox.navigation.ui.camera.DynamicCamera
 import com.mapbox.navigation.ui.camera.NavigationCamera.NAVIGATION_TRACKING_MODE_GPS
 import com.mapbox.navigation.ui.map.NavigationMapboxMap
-import java.lang.ref.WeakReference
 import kotlinx.android.synthetic.main.bottom_sheet_faster_route.*
 import kotlinx.android.synthetic.main.content_faster_route_layout.*
 import timber.log.Timber
+import java.lang.ref.WeakReference
 
 /**
  * Make sure you have given location permissions to the app for its proper functioning.
@@ -53,7 +55,7 @@ import timber.log.Timber
 class FasterRouteActivity : AppCompatActivity(), OnMapReadyCallback {
 
     companion object {
-        const val DEFAULT_FASTER_INTERVAL = 500L
+        const val DEFAULT_FASTEST_INTERVAL = 500L
         const val DEFAULT_ENGINE_REQUEST_INTERVAL = 1000L
         const val START_TIME_MILLIS = 5000L
         const val COUNT_DOWN_INTERVAL = 10L
@@ -168,7 +170,6 @@ class FasterRouteActivity : AppCompatActivity(), OnMapReadyCallback {
             navigationOptions = mapboxNavigationOptions,
             locationEngine = LocationEngineProvider.getBestLocationEngine(this)
         ).also {
-            it.registerLocationObserver(locationObserver)
             it.registerRoutesObserver(routesObserver)
         }
     }
@@ -214,14 +215,14 @@ class FasterRouteActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(mapboxMap: MapboxMap) {
         this.mapboxMap = mapboxMap
         mapboxMap.setStyle(Style.MAPBOX_STREETS) { style ->
-            mapboxMap.locationComponent.let { locationComponent ->
-                val locationComponentActivationOptions =
-                    LocationComponentActivationOptions.builder(this, style)
+            locationComponent = mapboxMap.locationComponent.apply {
+                activateLocationComponent(
+                    LocationComponentActivationOptions.builder(this@FasterRouteActivity, style)
+                        .useDefaultLocationEngine(false)
                         .build()
-
-                locationComponent.activateLocationComponent(locationComponentActivationOptions)
-                locationComponent.isLocationComponentEnabled = true
-                locationComponent.cameraMode = CameraMode.TRACKING
+                )
+                cameraMode = CameraMode.TRACKING
+                isLocationComponentEnabled = true
             }
             navigationMapboxMap = NavigationMapboxMap(mapView, mapboxMap).also {
                 it.addProgressChangeListener(mapboxNavigation)
@@ -243,11 +244,11 @@ class FasterRouteActivity : AppCompatActivity(), OnMapReadyCallback {
             }
             true
         }
-        locationComponent = mapboxMap.locationComponent
     }
 
     @SuppressLint("MissingPermission")
     private fun initListeners() {
+        Snackbar.make(container, R.string.msg_long_press_for_destination, LENGTH_LONG).show()
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetFasterRoute)
         bottomSheetBehavior.peekHeight = 0
         fasterRouteAcceptProgress.max = MAX_PROGRESS.toInt()
@@ -281,7 +282,7 @@ class FasterRouteActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun startLocationUpdates() {
         val requestLocationUpdateRequest =
             LocationEngineRequest.Builder(DEFAULT_ENGINE_REQUEST_INTERVAL)
-                .setFastestInterval(DEFAULT_FASTER_INTERVAL)
+                .setFastestInterval(DEFAULT_FASTEST_INTERVAL)
                 .setPriority(LocationEngineRequest.PRIORITY_HIGH_ACCURACY)
                 .build()
         try {
